@@ -1,164 +1,116 @@
--- Modernized Anime Egg Farm Pro
+--[ MODERNIZED AUTO-UTILITY ]--
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
-local UIS = game:GetService("UserInputService")
-local player = Players.LocalPlayer
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
--- // Configuration [cite: 2, 3]
-local Settings = {
-    AutoBuy = false,
-    AutoFarm = false,
-    CurrentTab = "Main",
-    Rarities = {
-        ["secret"] = true,
-        ["legendary"] = false,
-        ["mythic"] = false,
-        ["exclusive"] = true,
-        ["limited"] = true,
-        ["developer"] = true,
-        ["admin"] = true
+local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
+
+--// Configuration Module
+local Config = {
+    Colors = {
+        Main = Color3.fromRGB(20, 20, 25),
+        Accent = Color3.fromRGB(0, 170, 255),
+        Success = Color3.fromRGB(0, 255, 120),
+        Text = Color3.fromRGB(240, 240, 240)
     },
-    FastSkipDelay = 0.01 -- [cite: 3]
+    Defaults = {
+        MinPrice = 1000000000, -- [cite: 2]
+        MaxPrice = 100000000000, -- [cite: 2]
+        Varieties = "diamond,glitch,galaxy" -- [cite: 3]
+    }
 }
 
--- // Remote Fetching [cite: 4, 5]
+--// State Controller
+local State = {
+    AutoBuy = false,
+    AutoFarm = false,
+    SpecialRarities = true, -- [cite: 4]
+    FastSkip = 0.01 -- [cite: 2]
+}
+
+--// Remote Handler (Best Effort)
 local Remotes = {}
-pcall(function()
-    local conduit = ReplicatedStorage.Modules.Internals.Skeleton.Conduit.Instances
-    Remotes.Purchase = conduit._purchaseEgg
-    Remotes.Request = conduit._requestEgg
-    Remotes.Collect = conduit._collectEarnings
-    Remotes.Sell = conduit._sellStack
-end)
-
--- // UI Creation [cite: 5, 6, 7]
-local Gui = Instance.new("ScreenGui", player.PlayerGui)
-Gui.Name = "AuraFarm_V3"
-
-local Main = Instance.new("Frame", Gui)
-Main.Size = UDim2.new(0, 350, 0, 280)
-Main.Position = UDim2.new(0.5, -175, 0.5, -140)
-Main.BackgroundColor3 = Color3.fromRGB(15, 15, 17)
-Main.BorderSizePixel = 0
-Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
-
--- Sidebar Tabs
-local Sidebar = Instance.new("Frame", Main)
-Sidebar.Size = UDim2.new(0, 80, 1, 0)
-Sidebar.BackgroundColor3 = Color3.fromRGB(20, 20, 22)
-Instance.new("UICorner", Sidebar).CornerRadius = UDim.new(0, 10)
-
-local Container = Instance.new("Frame", Main)
-Container.Size = UDim2.new(1, -90, 1, -10)
-Container.Position = UDim2.new(0, 85, 0, 5)
-Container.BackgroundTransparency = 1
-
--- // Logic: Egg Detection [cite: 42, 48, 49]
-local function checkEgg(label)
-    if not label or not label.Parent then return false end
-    local rarity = tostring(label.Parent:FindFirstChild("Rarity").Text):lower()
-    
-    if Settings.Rarities[rarity] then
-        return true
+do
+    local path = ReplicatedStorage:FindFirstChild("Instances", true)
+    if path then
+        Remotes.Purchase = path:FindFirstChild("_purchaseEgg") -- 
+        Remotes.Request = path:FindFirstChild("_requestEgg") -- 
+        Remotes.Collect = path:FindFirstChild("_collectEarnings") -- 
+        Remotes.Sell = path:FindFirstChild("_sellStack") -- 
     end
-    return false
 end
 
--- // Core Skip Loop [cite: 58, 62, 65]
+--// Modern UI Constructor
+local function CreateModernUI()
+    local Screen = Instance.new("ScreenGui", PlayerGui)
+    Screen.Name = "ModernAuto"
+    Screen.ResetOnSpawn = false -- 
+
+    -- Main Panel
+    local Main = Instance.new("Frame", Screen)
+    Main.Size = UDim2.new(0, 450, 0, 300)
+    Main.Position = UDim2.new(0.5, -225, 0.5, -150)
+    Main.BackgroundColor3 = Config.Colors.Main
+    Main.BorderSizePixel = 0
+    
+    local Corner = Instance.new("UICorner", Main)
+    Corner.CornerRadius = UDim.new(0, 10) -- [cite: 6]
+
+    -- Title Bar
+    local Header = Instance.new("Frame", Main)
+    Header.Size = UDim2.new(1, 0, 0, 40)
+    Header.BackgroundTransparency = 1 -- [cite: 6]
+
+    local Title = Instance.new("TextLabel", Header)
+    Title.Text = "  PRO SIMULATOR UTILITY"
+    Title.Size = UDim2.new(1, 0, 1, 0)
+    Title.TextColor3 = Config.Colors.Text
+    Title.Font = Enum.Font.GothamBold
+    Title.TextSize = 16
+    Title.TextXAlignment = Enum.TextXAlignment.Left -- [cite: 6]
+
+    return Main, Screen
+end
+
+local MainPanel, RootGui = CreateModernUI()
+
+--// Core Systems: AutoFarm [cite: 70, 71]
 task.spawn(function()
-    while task.wait(Settings.FastSkipDelay) do
-        if Settings.AutoBuy then
-            local foundTarget = false
-            for _, tag in ipairs(Workspace:GetDescendants()) do
-                if tag.Name == "Eggtag" then
-                    local priceLabel = tag:FindFirstChild("Price", true)
-                    if priceLabel and checkEgg(priceLabel) then
-                        foundTarget = true
-                        -- Fire Purchase [cite: 38, 39]
-                        Remotes.Purchase:FireServer({
-                            ["__raw"] = true,
-                            ["data"] = {
-                                id = "entity_" .. tag.Parent.Name .. "_egg",
-                                rarity = tag.Container.Rarity.Text,
-                                variety = tag.Container.Variety.Text
-                            }
-                        })
-                        task.wait(1) -- Stop to ensure purchase [cite: 3]
+    while task.wait(1) do
+        if State.AutoFarm then
+            -- Equip Tool Logic
+            local backpack = Player:FindFirstChild("Backpack")
+            if backpack then
+                for _, tool in ipairs(backpack:GetChildren()) do
+                    if tool:IsA("Tool") and tool.Name:match("^Box Stack %[") then -- [cite: 66]
+                        Player.Character.Humanoid:EquipTool(tool) -- [cite: 67]
+                        break
                     end
                 end
             end
             
-            if not foundTarget then
-                Remotes.Request:FireServer({["__raw"] = true, ["data"] = {["confirmedSkip"] = true}})
-            end
+            -- Network Signals
+            if Remotes.Collect then Remotes.Collect:FireServer({["__raw"] = true, ["data"] = {}}) end -- [cite: 68]
+            if Remotes.Sell then Remotes.Sell:FireServer({["__raw"] = true, ["data"] = {}}) end -- [cite: 69]
         end
     end
 end)
 
--- // AutoFarm Loop [cite: 66, 69, 71]
+--// Core Systems: AutoBuy/Skip Loop [cite: 59, 60]
 task.spawn(function()
-    while task.wait(1) do
-        if Settings.AutoFarm then
-            Remotes.Collect:FireServer({["__raw"] = true, ["data"] = {}})
-            -- Check for Box Stack [cite: 67, 68]
-            local char = player.Character
-            if char and char:FindFirstChildOfClass("Tool") and char:FindFirstChildOfClass("Tool").Name:find("Box Stack") then
-                Remotes.Sell:FireServer({["__raw"] = true, ["data"] = {}})
+    while true do
+        if State.AutoBuy then
+            local args = { [1] = { ["__raw"] = true, ["data"] = {} } } -- [cite: 64]
+            if Remotes.Request then
+                Remotes.Request:FireServer(unpack(args)) -- [cite: 63]
             end
-        end
-    end
-end)
-
--- // UI Helper (Modern Buttons)
-local function createToggle(name, parent, settingKey, isRarity)
-    local b = Instance.new("TextButton", parent)
-    b.Size = UDim2.new(1, 0, 0, 35)
-    b.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-    b.Text = name
-    b.TextColor3 = Color3.white
-    b.Font = Enum.Font.GothamSemibold
-    Instance.new("UICorner", b)
-    
-    local function update()
-        local active = isRarity and Settings.Rarities[settingKey] or Settings[settingKey]
-        b.BackgroundColor3 = active and Color3.fromRGB(80, 200, 120) or Color3.fromRGB(30, 30, 35)
-    end
-    
-    b.MouseButton1Click:Connect(function()
-        if isRarity then
-            Settings.Rarities[settingKey] = not Settings.Rarities[settingKey]
+            task.wait(State.FastSkip) -- [cite: 65]
         else
-            Settings[settingKey] = not Settings[settingKey]
+            task.wait(0.5)
         end
-        update()
-    end)
-    update()
-end
-
--- Populate Tabs
-local list = Instance.new("UIListLayout", Container)
-list.Padding = UDim.new(0, 5)
-
--- Add Toggles [cite: 17, 49]
-createToggle("Master Auto-Buy", Container, "AutoBuy", false)
-createToggle("Auto Farm", Container, "AutoFarm", false)
-createToggle("Stop Mythic", Container, "mythic", true)
-createToggle("Stop Legendary", Container, "legendary", true)
-createToggle("Stop Secret", Container, "secret", true)
-createToggle("Stop Exclusive/Limited", Container, "exclusive", true)
-
--- Simple Dragging [cite: 29, 30]
-local dragStart, startPos, dragging
-Main.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true; dragStart = input.Position; startPos = Main.Position
     end
 end)
-UIS.InputChanged:Connect(function(input)
-    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-        local delta = input.Position - dragStart
-        Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-end)
-UIS.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end end)
+
+print("Modernized Script Loaded Successfully.")
